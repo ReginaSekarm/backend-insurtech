@@ -1,7 +1,8 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Controller;
 use App\Models\Produk;
 use Illuminate\Http\Request;
 
@@ -29,6 +30,8 @@ class ProdukController extends Controller
 
         $count = Produk::count() + 1;
         $newId = 'PRD' . str_pad($count, 5, '0', STR_PAD_LEFT);
+
+        dd($newId, auth()->user());
 
         $produk = Produk::create([
             'ID_Produk'        => $newId,
@@ -70,6 +73,7 @@ class ProdukController extends Controller
     {
         $produk = Produk::findOrFail($id);
         $produk->delete();
+
         return response()->json(['message' => 'Produk berhasil dihapus']);
     }
 

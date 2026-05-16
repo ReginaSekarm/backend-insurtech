@@ -4,35 +4,67 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\Polis;
+use App\Models\Produk;
 
 class PolisController extends Controller
 {
-    public function index()
+    // Lihat polis milik pengguna yang login
+    public function polisSaya(Request $request)
     {
-        return response()->json(Polis::all());
+        $polis = Polis::where('ID_Pengguna', auth()->user()->ID_Pengguna)->get();
+        return response()->json(['data' => $polis]);
     }
 
-    public function show($id)
+    // Lihat detail polis
+    public function detail($id)
     {
-        return response()->json(Polis::findOrFail($id));
+        $polis = Polis::where('ID_Polis', $id)
+            ->where('ID_Pengguna', auth()->user()->ID_Pengguna)
+            ->firstOrFail();
+        return response()->json(['data' => $polis]);
     }
 
-    public function store(Request $request)
+    // Beli produk / buat polis baru
+    public function beli(Request $request)
     {
-        $polis = Polis::create($request->all());
-        return response()->json($polis, 201);
-    }
+        $request->validate([
+            'ID_Produk' => 'required|exists:produk,ID_Produk',
+        ]);
 
-    public function update(Request $request, $id)
-    {
-        $polis = Polis::findOrFail($id);
-        $polis->update($request->all());
-        return response()->json($polis);
-    }
+        $user = auth()->user();
 
-    public function destroy($id)
-    {
-        Polis::findOrFail($id)->delete();
-        return response()->json(['message' => 'Deleted!']);
+        // Cek apakah pengguna sudah terverifikasi
+        if ($user->verifikasi_status !== 'verified') {
+            return response()->json([
+                'message' => 'Akun belum terverifikasi, silakan tunggu verifikasi KTP/KK dari admin'
+            ], 403);
+        }
+
+        $produk = Produk::findOrFail($request->ID_Produk);
+
+        // Cek apakah produk sudah dipublish
+        if ($produk->status !== 'published') {
+            return response()->json([
+                'message' => 'Produk tidak tersedia'
+            ], 400);
+        }
+
+        $count = Polis::count() + 1;
+        $newId = 'POL' . str_pad($count, 5, '0', STR_PAD_LEFT);
+
+        $polis = Polis::create([
+            'ID_Polis'       => $newId,
+            'ID_Pengguna'    => $user->ID_Pengguna,
+            'ID_Produk'      => $request->ID_Produk,
+            'Tanggal_Mulai'  => now()->toDateString(),
+            'Tanggal_Selesai'=> now()->addYear()->toDateString(),
+            'Status_Polis'   => 'Aktif',
+            'Total_Premi'    => $produk->Harga_Premi,
+        ]);
+
+        return response()->json([
+            'message' => 'Polis berhasil dibuat',
+            'data'    => $polis
+        ], 201);
     }
 }
