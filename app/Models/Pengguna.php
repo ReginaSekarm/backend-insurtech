@@ -25,7 +25,11 @@ class Pengguna extends Authenticatable
         'Tanggal_Lahir',
         'Alamat_Lengkap',
         'role',
+        
+        // PERBAIKAN: Daftarkan kedua variasi case demi keamanan mutlak database MySQL Anda
         'verifikasi_status',
+        'Verifikasi_Status', 
+        
         'alasan_penolakan',
         'verified_at',
         'verified_by',

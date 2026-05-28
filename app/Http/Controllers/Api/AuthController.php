@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Pengguna;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\DB;
 
 class AuthController extends Controller
 {
@@ -32,6 +33,7 @@ class AuthController extends Controller
                 'nama' => $user->Nama_Lengkap,
                 'email' => $user->Email,
                 'role' => $user->role,
+                'no_telepon' => $user->No_Telepon, // Tambahan agar data session login langsung lengkap
             ],
             'token' => $token
         ]);
@@ -78,6 +80,39 @@ class AuthController extends Controller
         return response()->json(['message' => 'Logout berhasil']);
     }
 
+    // ====================================================================
+    // TAMBAHAN BARU: Fungsi untuk Memperbarui Nomor Telepon di Database MySQL
+    // ====================================================================
+    public function ubahNomorTelepon(Request $request)
+    {
+        // 1. Validasi input: mendukung key 'No_Telepon' dari React (wajib angka, panjang 10-13 digit)
+        $request->validate([
+            'No_Telepon' => 'required|numeric|digits_between:10,13',
+        ], [
+            'No_Telepon.required' => 'Nomor telepon baru wajib diisi.',
+            'No_Telepon.numeric'  => 'Nomor telepon harus berupa angka.',
+            'No_Telepon.digits_between' => 'Nomor telepon harus berukuran antara 10 hingga 13 digit.',
+        ]);
+
+        // 2. Mengambil entitas data pengguna yang saat ini sedang login melalui token Sanctum
+        $user = $request->user();
+
+        if (!$user) {
+            return response()->json(['message' => 'Sesi autentikasi Anda tidak valid atau kedaluwarsa.'], 401);
+        }
+
+        // 3. Eksekusi penyimpanan data baru ke dalam database pengguna
+        $user->No_Telepon = $request->No_Telepon;
+        $user->save();
+
+        // 4. Kembalikan data user terbaru dalam format JSON ke React
+        return response()->json([
+            'status'  => 'success',
+            'message' => 'Nomor telepon Anda berhasil diperbarui di database.',
+            'user'    => $user
+        ], 200);
+    }
+
     public function ubahPassword(Request $request)
     {
         $request->validate([
@@ -94,5 +129,49 @@ class AuthController extends Controller
         $user->update(['Password' => Hash::make($request->Password_Baru)]);
 
         return response()->json(['message' => 'Password berhasil diubah']);
+    }
+
+    public function user(Request $request)
+    {
+        $user = $request->user();
+        
+        return response()->json([
+            'user' => [
+                'id' => $user->ID_Pengguna,
+                'nama' => $user->Nama_Lengkap,
+                'email' => $user->Email,
+                'role' => $user->role,
+                'verifikasi_status' => $user->verifikasi_status,
+                
+                // PERBAIKAN: Mengirimkan field No_Telepon & Alamat agar terbaca dinamis oleh Profil.jsx
+                'no_telepon' => $user->No_Telepon,
+                'noTelepon' => $user->No_Telepon,
+                'alamat' => $user->Alamat_Lengkap
+            ]
+        ]);
+    }
+
+    // ========== API UNTUK DASHBOARD NASABAH ==========
+    public function dashboardNasabah(Request $request)
+    {
+        $user = $request->user();
+
+        try {
+            $polisAktif = DB::table('polis')->where('ID_Pengguna', $user->ID_Pengguna)->where('status', 'active')->count();
+            $totalPolis = DB::table('polis')->where('ID_Pengguna', $user->ID_Pengguna)->count();
+            $totalKlaim = DB::table('klaim')->where('ID_Pengguna', $user->ID_Pengguna)->count();
+        } catch (\Exception $e) {
+            $polisAktif = 0;
+            $totalPolis = 0;
+            $totalKlaim = 0;
+        }
+
+        return response()->json([
+            'polisAktif' => $polisAktif,
+            'totalPolis' => $totalPolis,
+            'totalKlaim' => $totalKlaim,
+            'tunggakan' => 0, 
+            'aktivitas' => [] 
+        ], 200);
     }
 }
