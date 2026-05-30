@@ -42,7 +42,7 @@ class KlaimController extends Controller
         ]);
 
         // Update status polis
-        $polis->update(['Status_Polis' => 'Klaim Proses']);
+        $polis->update(['Status_Polis' => 'Aktif']);
 
         return response()->json([
             'message' => 'Klaim berhasil diajukan',

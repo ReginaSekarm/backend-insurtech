@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Produk;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage; // TAMBAHAN: Wajib untuk fitur upload file PDF
 
 class ProdukController extends Controller
 {
@@ -45,6 +46,9 @@ class ProdukController extends Controller
             
             $item->masa_tunggu = $item->Masa_Tunggu;
 
+            // TAMBAHAN: Kirimkan path file PDF agar terbaca di Frontend
+            $item->file_snk = $item->file_snk;
+
             return $item;
         });
 
@@ -76,6 +80,9 @@ class ProdukController extends Controller
         $produk->price = $produk->Harga_Premi;
         $produk->kategori = $produk->Kategori_Produk;
         $produk->category = $produk->Kategori_Produk;
+        
+        // TAMBAHAN
+        $produk->file_snk = $produk->file_snk;
 
         return response()->json($produk);
     }
@@ -89,6 +96,7 @@ class ProdukController extends Controller
             'Kategori_Produk'  => 'nullable|string',
             'Maksimal_Klaim'   => 'nullable|numeric',
             'Masa_Tunggu'      => 'nullable|numeric',
+            // 'pdfFile' => 'nullable|mimes:pdf|max:10240', // Opsional validasi PDF
         ]);
 
         $count = Produk::count() + 1;
@@ -100,7 +108,8 @@ class ProdukController extends Controller
             $statusInput = 'published';
         }
 
-        $produk = Produk::create([
+        // Siapkan array data yang akan dimasukkan ke Database
+        $dataCreate = [
             'ID_Produk'        => $newId,
             'Nama_Produk'      => $request->Nama_Produk,
             'Deskripsi_Produk' => $request->Deskripsi_Produk,
@@ -111,7 +120,20 @@ class ProdukController extends Controller
             'status'           => $statusInput,
             'published_at'     => $statusInput === 'published' ? now() : null,
             'created_by'       => auth()->user() ? auth()->user()->ID_Pengguna : null,
-        ]);
+        ];
+
+        // TAMBAHAN: LOGIKA SIMPAN FILE PDF
+        if ($request->hasFile('pdfFile')) {
+            $file = $request->file('pdfFile');
+            $filename = time() . '_' . $file->getClientOriginalName();
+            // Simpan ke storage/app/public/pdfs
+            $path = $file->storeAs('pdfs', $filename, 'public');
+            
+            // Tambahkan path ke array agar tersimpan di database
+            $dataCreate['file_snk'] = $path;
+        }
+
+        $produk = Produk::create($dataCreate);
 
         $produk->id = $produk->ID_Produk;
         return response()->json([
@@ -151,6 +173,22 @@ class ProdukController extends Controller
             }
         }
 
+        // TAMBAHAN: LOGIKA UPDATE FILE PDF
+        if ($request->hasFile('pdfFile')) {
+            // Hapus file lama jika produk tersebut sudah punya file sebelumnya
+            if ($produk->file_snk && Storage::disk('public')->exists($produk->file_snk)) {
+                Storage::disk('public')->delete($produk->file_snk);
+            }
+
+            // Simpan file baru
+            $file = $request->file('pdfFile');
+            $filename = time() . '_' . $file->getClientOriginalName();
+            $path = $file->storeAs('pdfs', $filename, 'public');
+            
+            // Masukkan nama file baru ke data update
+            $dataUpdate['file_snk'] = $path;
+        }
+
         $produk->update($dataUpdate);
         $produk->id = $produk->ID_Produk;
 
@@ -167,6 +205,11 @@ class ProdukController extends Controller
             $produk = Produk::findOrFail($id);
         }
         
+        // TAMBAHAN: Hapus file fisik PDF dari server saat produk dihapus agar storage tidak penuh
+        if ($produk->file_snk && Storage::disk('public')->exists($produk->file_snk)) {
+            Storage::disk('public')->delete($produk->file_snk);
+        }
+
         $produk->delete();
         return response()->json(['message' => 'Produk berhasil dihapus']);
     }

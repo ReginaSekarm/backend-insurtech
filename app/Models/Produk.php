@@ -19,6 +19,14 @@ class Produk extends Model
         'Harga_Premi',
         'status',
         'published_at',
-        'created_by'
+        'created_by',
+        
+        // TAMBAHAN: Kolom dari Form Admin yang belum masuk
+        'Kategori_Produk',
+        'Maksimal_Klaim',
+        'Masa_Tunggu',
+        
+        // TAMBAHAN: Kolom untuk menyimpan file PDF
+        'file_snk' 
     ];
 }
