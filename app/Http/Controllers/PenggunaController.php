@@ -9,12 +9,14 @@ class PenggunaController extends Controller
 {
     public function index()
     {
-        return response()->json(Pengguna::all());
+        $pengguna = Pengguna::withCount(['polis', 'klaim'])->get();
+        return response()->json($pengguna);
     }
 
     public function show($id)
     {
-        return response()->json(Pengguna::findOrFail($id));
+        $pengguna = Pengguna::withCount(['polis', 'klaim'])->findOrFail($id);
+        return response()->json($pengguna);
     }
 
     public function store(Request $request)

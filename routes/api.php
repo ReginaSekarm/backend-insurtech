@@ -6,7 +6,7 @@ use App\Http\Controllers\PolisController;
 use App\Http\Controllers\ProdukController;
 use App\Http\Controllers\KlaimController;
 use App\Http\Controllers\Laporan_KeuanganController;
-use App\Http\Controllers\Api\VerifikasiController; 
+use App\Http\Controllers\Api\VerifikasiController;
 use App\Http\Controllers\Api\AuthController;
 
 // ========== ROUTE LOGIN & REGISTER (PUBLIC) ==========
@@ -19,63 +19,91 @@ Route::get('/produk/{id}', [ProdukController::class, 'show']);
 
 // ========== ROUTE YANG BUTUH TOKEN (USER & NASABAH LOGIN) ==========
 Route::middleware('auth:sanctum')->group(function () {
+    // Auth
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/user', [AuthController::class, 'user']);
     Route::get('/nasabah/dashboard', [AuthController::class, 'dashboardNasabah']);
-    
-    // ====================================================================
-    // TAMBAHAN: Rute Mengubah Nomor Telepon Nasabah (Dipanggil oleh React)
-    // ====================================================================
     Route::put('/nasabah/ubah-nomor-telepon', [AuthController::class, 'ubahNomorTelepon']);
     
-    // ========== DATA STATISTIK DASHBOARD & TUNGGAKAN ==========
+    // ========== UBAH PASSWORD ==========
+    Route::put('/ubah-password', [AuthController::class, 'ubahPassword']);
+
+    // ========== UPLOAD DOKUMEN KTP & KK ==========
+    Route::post('/upload-dokumen', [AuthController::class, 'uploadDokumen']);
+    
+    // Dashboard & Lainnya
     Route::get('/dashboard/stats', [PolisController::class, 'dashboardStats']);
     Route::get('/nasabah/tunggakan', [PolisController::class, 'tunggakanNasabah']);
-    
-    // PERBAIKAN: Menghubungkan endpoint riwayat transaksi nasabah asli ke controller
     Route::get('/nasabah/riwayat-transaksi', [PolisController::class, 'riwayatTransaksi']);
     
-    // ========== NOTIFIKASI NASABAH ==========
+    // ========== NOTIFIKASI ==========
     Route::get('/nasabah/notifikasi', [PolisController::class, 'notifikasiNasabah']);
+    Route::post('/notifications/mark-read', [PolisController::class, 'markNotificationAsRead']);
+    Route::get('/notifications/unread-count', [PolisController::class, 'unreadNotificationCount']);
 
-    // ========== ROUTE POLIS (USER LOGIN) ==========
+    // Polis
     Route::post('/polis/beli', [PolisController::class, 'beli']);
     Route::get('/polis/saya', [PolisController::class, 'polisSaya']);
     Route::get('/polis/{id}', [PolisController::class, 'detail']);
     Route::put('/polis/{id}/bayar', [PolisController::class, 'bayar']);
-    
-    // Rute untuk memproses inisiasi pembayaran iuran/premi berkala dari nasabah
     Route::post('/polis/{id}/bayar-premi', [PolisController::class, 'bayarPremiRutin']);
-    
-    // Rute untuk mengambil detail data iuran premi untuk discan di halaman QRIS frontend
     Route::get('/pembayaran-premi/{transactionId}', [PolisController::class, 'detailPembayaranPremi']);
 
-    // ========== ROUTE KLAIM (USER LOGIN) ==========
+    // Klaim User
     Route::post('/klaim/ajukan', [KlaimController::class, 'ajukan']);
     Route::get('/klaim/saya', [KlaimController::class, 'klaimSaya']);
-    Route::get('/klaim/{id}/status', [KlaimController::class, 'status']);
+    Route::get('/klaim/status/{id}', [KlaimController::class, 'status']);
+    Route::get('/klaim/unduh/{id}', [KlaimController::class, 'unduh']);
+    
+    // SEMUA KLAIM (untuk admin dan testing)
+    Route::get('/semua-klaim', [KlaimController::class, 'index']);
 });
 
 // ========== ROUTE KHUSUS ADMIN (PREFIX: ADMIN) ==========
 Route::middleware(['auth:sanctum'])->prefix('admin')->group(function () {
-    // PERBAIKAN UTAMA: Menambahkan endpoint statistik untuk Dashboard Utama Admin
+    // Dashboard Stats
     Route::get('/dashboard/stats', [VerifikasiController::class, 'dashboardStats']);
+    Route::get('/stats', [KlaimController::class, 'stats']);
 
-    // Manajemen Produk oleh Admin
+    // Manajemen Produk
     Route::post('/produk', [ProdukController::class, 'store']);
     Route::put('/produk/{id}', [ProdukController::class, 'update']);
     Route::delete('/produk/{id}', [ProdukController::class, 'destroy']);
     Route::put('/produk/{id}/publish', [ProdukController::class, 'publish']);
 
-    // PERBAIKAN: Membuka rute agar bisa diakses sebagai /api/admin/verifikasi-dokumen jika dicari oleh frontend
+    // Verifikasi Dokumen
     Route::get('/verifikasi/pending', [VerifikasiController::class, 'pendingUsers']);
-    Route::get('/verifikasi-dokumen', [VerifikasiController::class, 'pendingUsers']); 
-    Route::put('/verifikasi/{id}', [VerifikasiController::class, 'verify']);
+    Route::get('/verifikasi-dokumen', [VerifikasiController::class, 'pendingUsers']);
+    Route::get('/verifikasi-dokumen/{id}', [VerifikasiController::class, 'getDokumen']);
+    // ✅ SATU-SATUNYA YANG BERUBAH — verify() → verifyFull()
+    Route::put('/verifikasi/{id}', [VerifikasiController::class, 'verifyFull']);
 
+    // ========== ROUTE KLAIM UNTUK ADMIN ==========
+    Route::get('/klaim', [KlaimController::class, 'index']);
     Route::get('/klaim/pending', [KlaimController::class, 'pendingKlaim']);
+    Route::put('/klaim/{id}/review', [KlaimController::class, 'review']);
+    
+    // ========== ADMIN UPDATE STATUS KLAIM (DENGAN NOTIFIKASI) ==========
+    Route::put('/klaim/{id}/status', [PolisController::class, 'updateStatusKlaim']);
 });
 
 // ========== ROUTE API RESOURCE YANG SUDAH ADA ==========
 Route::apiResource('pengguna', PenggunaController::class);
 Route::apiResource('polis', PolisController::class);
 Route::apiResource('laporan-keuangan', Laporan_KeuanganController::class);
+Route::apiResource('klaim', KlaimController::class);
+
+// ========== ROUTE TESTING ==========
+Route::get('/test', function () {
+    return response()->json([
+        'message' => 'API is working', 
+        'time' => now()->toDateTimeString(),
+        'status' => 'success'
+    ]);
+});
+
+// ========== ROUTE UNTUK ADMIN DASHBOARD (tanpa prefix admin) ==========
+Route::middleware('auth:sanctum')->prefix('admin-dashboard')->group(function () {
+    Route::get('/klaim', [KlaimController::class, 'index']);
+    Route::get('/stats', [KlaimController::class, 'stats']);
+});

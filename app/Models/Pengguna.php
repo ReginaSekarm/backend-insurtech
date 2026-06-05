@@ -25,11 +25,8 @@ class Pengguna extends Authenticatable
         'Tanggal_Lahir',
         'Alamat_Lengkap',
         'role',
-        
-        // PERBAIKAN: Daftarkan kedua variasi case demi keamanan mutlak database MySQL Anda
         'verifikasi_status',
-        'Verifikasi_Status', 
-        
+        'Verifikasi_Status',
         'alasan_penolakan',
         'verified_at',
         'verified_by',
@@ -42,4 +39,21 @@ class Pengguna extends Authenticatable
         'Password',
         'remember_token',
     ];
+
+    public function polis()
+    {
+        return $this->hasMany(Polis::class, 'ID_Pengguna', 'ID_Pengguna');
+    }
+
+    public function klaim()
+    {
+        return $this->hasManyThrough(
+            Klaim::class,
+            Polis::class,
+            'ID_Pengguna',
+            'ID_Polis',
+            'ID_Pengguna',
+            'ID_Polis'
+        );
+    }
 }

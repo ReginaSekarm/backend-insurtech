@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Validator;
 
 class AuthController extends Controller
 {
@@ -34,7 +35,7 @@ class AuthController extends Controller
                 'nama' => $user->Nama_Lengkap,
                 'email' => $user->Email,
                 'role' => $user->role,
-                'no_telepon' => $user->No_Telepon, // Tambahan agar data session login langsung lengkap
+                'no_telepon' => $user->No_Telepon,
             ],
             'token' => $token
         ]);
@@ -67,6 +68,8 @@ class AuthController extends Controller
             'Alamat_Lengkap'    => $request->Alamat_Lengkap,
             'role'              => 'user',
             'verifikasi_status' => 'pending',
+            'ktp_verified'      => false,
+            'kk_verified'       => false,
         ]);
 
         return response()->json([
@@ -75,18 +78,62 @@ class AuthController extends Controller
         ], 201);
     }
 
+    // ✅ METHOD BARU — Upload dokumen KTP & KK setelah register
+    public function uploadDokumen(Request $request)
+    {
+        $request->validate([
+            'foto_ktp' => 'required|file|mimes:jpg,jpeg,png,pdf|max:5120',
+            'foto_kk'  => 'required|file|mimes:jpg,jpeg,png,pdf|max:5120',
+        ], [
+            'foto_ktp.required' => 'Foto KTP wajib diupload',
+            'foto_kk.required'  => 'Foto KK wajib diupload',
+            'foto_ktp.mimes'    => 'Format KTP harus JPG, PNG, atau PDF',
+            'foto_kk.mimes'     => 'Format KK harus JPG, PNG, atau PDF',
+            'foto_ktp.max'      => 'Ukuran KTP maksimal 5MB',
+            'foto_kk.max'       => 'Ukuran KK maksimal 5MB',
+        ]);
+
+        $user = $request->user();
+
+        // Hapus file lama jika ada
+        if ($user->foto_ktp) {
+            Storage::disk('public')->delete($user->foto_ktp);
+        }
+        if ($user->foto_kk) {
+            Storage::disk('public')->delete($user->foto_kk);
+        }
+
+        // Simpan file baru
+        $namaKtp = 'KTP_' . strtoupper(str_replace(' ', '_', $user->Nama_Lengkap)) . '.' . $request->file('foto_ktp')->getClientOriginalExtension();
+        $namaKk  = 'KK_'  . strtoupper(str_replace(' ', '_', $user->Nama_Lengkap)) . '.' . $request->file('foto_kk')->getClientOriginalExtension();
+
+        $pathKtp = $request->file('foto_ktp')->storeAs('dokumen_pengguna', $namaKtp, 'public');
+        $pathKk  = $request->file('foto_kk')->storeAs('dokumen_pengguna', $namaKk, 'public');
+
+        // Simpan path ke database
+        $user->foto_ktp = $pathKtp;
+        $user->foto_kk  = $pathKk;
+        $user->verifikasi_status = 'pending';
+        $user->save();
+
+        return response()->json([
+            'status'  => 'success',
+            'message' => 'Dokumen berhasil diupload, menunggu verifikasi admin',
+            'data' => [
+                'foto_ktp' => $pathKtp,
+                'foto_kk'  => $pathKk,
+            ]
+        ], 200);
+    }
+
     public function logout(Request $request)
     {
         $request->user()->currentAccessToken()->delete();
         return response()->json(['message' => 'Logout berhasil']);
     }
 
-    // ====================================================================
-    // TAMBAHAN BARU: Fungsi untuk Memperbarui Nomor Telepon di Database MySQL
-    // ====================================================================
     public function ubahNomorTelepon(Request $request)
     {
-        // 1. Validasi input: mendukung key 'No_Telepon' dari React (wajib angka, panjang 10-13 digit)
         $request->validate([
             'No_Telepon' => 'required|numeric|digits_between:10,13',
         ], [
@@ -95,18 +142,15 @@ class AuthController extends Controller
             'No_Telepon.digits_between' => 'Nomor telepon harus berukuran antara 10 hingga 13 digit.',
         ]);
 
-        // 2. Mengambil entitas data pengguna yang saat ini sedang login melalui token Sanctum
         $user = $request->user();
 
         if (!$user) {
             return response()->json(['message' => 'Sesi autentikasi Anda tidak valid atau kedaluwarsa.'], 401);
         }
 
-        // 3. Eksekusi penyimpanan data baru ke dalam database pengguna
         $user->No_Telepon = $request->No_Telepon;
         $user->save();
 
-        // 4. Kembalikan data user terbaru dalam format JSON ke React
         return response()->json([
             'status'  => 'success',
             'message' => 'Nomor telepon Anda berhasil diperbarui di database.',
@@ -116,20 +160,49 @@ class AuthController extends Controller
 
     public function ubahPassword(Request $request)
     {
-        $request->validate([
-            'Password_Lama' => 'required',
-            'Password_Baru' => 'required|min:6',
-        ]);
-
-        $user = $request->user();
-
-        if (!Hash::check($request->Password_Lama, $user->Password)) {
-            return response()->json(['message' => 'Password lama salah'], 401);
+        try {
+            $user = $request->user();
+            
+            $validator = Validator::make($request->all(), [
+                'current_password' => 'required|string',
+                'new_password' => 'required|string|min:8|regex:/^(?=.*[0-9])(?=.*[!@#$%^&*])/',
+                'confirm_password' => 'required|same:new_password'
+            ], [
+                'new_password.min' => 'Password minimal 8 karakter',
+                'new_password.regex' => 'Password harus mengandung angka (0-9) dan karakter unik (!@#$%^&*)',
+                'confirm_password.same' => 'Konfirmasi password tidak sesuai',
+                'current_password.required' => 'Password lama wajib diisi'
+            ]);
+            
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validasi gagal',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+            
+            if (!Hash::check($request->current_password, $user->Password)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Password lama tidak sesuai'
+                ], 401);
+            }
+            
+            $user->Password = Hash::make($request->new_password);
+            $user->save();
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'Password berhasil diubah'
+            ], 200);
+            
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan: ' . $e->getMessage()
+            ], 500);
         }
-
-        $user->update(['Password' => Hash::make($request->Password_Baru)]);
-
-        return response()->json(['message' => 'Password berhasil diubah']);
     }
 
     public function user(Request $request)
@@ -143,16 +216,19 @@ class AuthController extends Controller
                 'email' => $user->Email,
                 'role' => $user->role,
                 'verifikasi_status' => $user->verifikasi_status,
-                
-                // PERBAIKAN: Mengirimkan field No_Telepon & Alamat agar terbaca dinamis oleh Profil.jsx
                 'no_telepon' => $user->No_Telepon,
                 'noTelepon' => $user->No_Telepon,
-                'alamat' => $user->Alamat_Lengkap
+                'alamat' => $user->Alamat_Lengkap,
+                'ktp_verified' => $user->ktp_verified ?? false,
+                'kk_verified' => $user->kk_verified ?? false,
+                'foto_ktp' => $user->foto_ktp ?? null,
+                'foto_kk' => $user->foto_kk ?? null,
+                'ktp_path' => $user->foto_ktp ?? null,
+                'kk_path' => $user->foto_kk ?? null,
             ]
         ]);
     }
 
-    // ========== API UNTUK DASHBOARD NASABAH ==========
     public function dashboardNasabah(Request $request)
     {
         $user = $request->user();
@@ -171,8 +247,8 @@ class AuthController extends Controller
             'polisAktif' => $polisAktif,
             'totalPolis' => $totalPolis,
             'totalKlaim' => $totalKlaim,
-            'tunggakan' => 0, 
-            'aktivitas' => [] 
+            'tunggakan' => 0,
+            'aktivitas' => []
         ], 200);
     }
 }

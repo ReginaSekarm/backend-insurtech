@@ -3,6 +3,11 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+// Menambahkan import class secara eksplisit untuk mencegah class not found
+use App\Models\Pengguna; 
+use App\Models\Produk;
+use App\Models\Klaim;
+use App\Models\Pembayaran_Premi;
 
 class Polis extends Model
 {
@@ -24,6 +29,8 @@ class Polis extends Model
 
     public function pengguna()
     {
+        // Catatan: Jika file model Anda bernama User.php (bukan Pengguna.php), 
+        // silakan ubah Pengguna::class di bawah ini menjadi User::class
         return $this->belongsTo(Pengguna::class, 'ID_Pengguna', 'ID_Pengguna');
     }
 

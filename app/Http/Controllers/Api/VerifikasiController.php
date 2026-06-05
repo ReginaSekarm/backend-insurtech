@@ -4,93 +4,47 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Pengguna;
+use App\Models\Polis;
+use App\Models\Klaim;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 
 class VerifikasiController extends Controller
 {
-    /**
-     * PERBAIKAN UTAMA: Mengambil data ringkasan statistik untuk Dashboard Utama Admin.
-     * Menggunakan bypass query builder langsung ke tabel dan menyamakan format camelCase untuk React.
-     */
     public function dashboardStats()
     {
         try {
-            // 1. Ambil total seluruh pengguna di tabel tanpa terkunci filter role 'user' yang sensitif
-            $totalPengguna = DB::table('pengguna')->count();
+            $totalPengguna = Pengguna::count();
 
-            // 2. Hitung nasabah pending (Mendukung pencarian huruf besar/kecil 'Pending' atau 'pending')
-            $penggunaPending = DB::table('pengguna')
-                ->whereIn(DB::raw('LOWER(verifikasi_status)'), ['pending'])
-                ->count();
-
-            // 3. Hitung nasabah terverifikasi
-            $penggunaVerified = DB::table('pengguna')
-                ->whereIn(DB::raw('LOWER(verifikasi_status)'), ['verified', 'approved'])
-                ->count();
-
-            // 4. PERBAIKAN TOTAL POLIS & PREMI: Agregasi aman kebal case-sensitive MySQL
+            $semuaPolis = Polis::with('produk')->get();
             $totalPolisAktif = 0;
             $totalPremiBulanIni = 0;
-            
-            try {
-                // Menghitung baris polis yang memiliki indikasi status aktif / Aktif
-                $totalPolisAktif = DB::table('polis')
-                    ->whereIn(DB::raw('LOWER(Status_Polis)'), ['aktif', 'active'])
-                    ->orWhereIn(DB::raw('LOWER(status_polis)'), ['aktif', 'active'])
-                    ->count();
 
-                // Jika hasil hitungan string status gagal/0 tapi baris tabelnya ada isi, paksa baca total barisnya
-                if ($totalPolisAktif === 0) {
-                    $totalPolisAktif = DB::table('polis')->count();
+            foreach ($semuaPolis as $p) {
+                $status = strtolower($p->Status_Polis ?? $p->status ?? '');
+                
+                if ($status !== 'batal' && $status !== 'nonaktif' && $status !== 'ditolak' && $status !== 'expired') {
+                    $totalPolisAktif++;
+                    $premi = $p->Total_Premi ?? $p->Harga_Premi ?? ($p->produk ? $p->produk->Harga_Premi : 0);
+                    $totalPremiBulanIni += (int) $premi;
                 }
-
-                // Kalkulasi total premi bulan ini dari seluruh polis yang berjalan aktif
-                $totalPremiBulanIni = DB::table('polis')
-                    ->whereIn(DB::raw('LOWER(Status_Polis)'), ['aktif', 'active'])
-                    ->orWhereIn(DB::raw('LOWER(status_polis)'), ['aktif', 'active'])
-                    ->sum('Total_Premi');
-
-                if ($totalPremiBulanIni === 0) {
-                    $totalPremiBulanIni = DB::table('polis')->sum('Total_Premi') ?? 0;
-                }
-            } catch (\Exception $e) {
-                // Jaga-jaga jika ada kesalahan ketik nama tabel/kolom pada database lokal Anda
-                $totalPolisAktif = DB::table('polis')->count() > 0 ? DB::table('polis')->count() : 1;
-                $totalPremiBulanIni = 0;
             }
 
-            // 5. Hitung total klaim pending/proses yang masuk ke admin
-            $totalKlaimPending = 0;
-            try {
-                $totalKlaimPending = DB::table('klaim')
-                    ->whereIn(DB::raw('LOWER(status_klaim)'), ['pending', 'proses'])
-                    ->orWhereIn(DB::raw('LOWER(status)'), ['pending', 'proses'])
-                    ->count();
-            } catch (\Exception $e) {
-                $totalKlaimPending = 0; 
-            }
+            $totalKlaimPending = Klaim::whereIn('Status_Klaim', ['Proses', 'Pending', 'proses', 'pending'])->count();
 
-            // PERBAIKAN FORMAT: Menyamakan properti key agar pas dengan pemanggilan di AdminDashboard.jsx
             return response()->json([
                 'status' => 'success',
-                'total_pengguna'    => $totalPengguna,
                 'data' => [
-                    'pengguna'      => $totalPengguna,      // Dicari oleh stats.pengguna
-                    'polisAktif'    => $totalPolisAktif,    // Dicari oleh stats.polisAktif -> Menampilkan angka 1
-                    'klaimPending'  => $totalKlaimPending,  // Dicari oleh stats.klaimPending
-                    'premiBulanIni' => (int) $totalPremiBulanIni, // Dicari oleh stats.premiBulanIni
-                    
-                    // Cadangan format snake_case jika dibutuhkan halaman lain
-                    'total_pengguna'      => $totalPengguna,
-                    'pengguna_pending'    => $penggunaPending,
-                    'pengguna_verified'   => $penggunaVerified,
-                    'total_polis_aktif'   => $totalPolisAktif,
-                    'total_klaim_pending' => $totalKlaimPending,
+                    'pengguna'      => $totalPengguna,
+                    'polisAktif'    => $totalPolisAktif,
+                    'klaimPending'  => $totalKlaimPending,
+                    'premiBulanIni' => $totalPremiBulanIni
                 ]
             ], 200);
 
         } catch (\Exception $e) {
+            Log::error('Error dashboardStats: ' . $e->getMessage());
             return response()->json([
                 'status' => 'error',
                 'message' => 'Gagal memuat statistik admin: ' . $e->getMessage()
@@ -98,74 +52,209 @@ class VerifikasiController extends Controller
         }
     }
 
-    /**
-     * Menampilkan daftar pengguna yang status verifikasinya masih pending.
-     * Disesuaikan dengan ekspektasi frontend AdminVerifikasiDokumen.jsx
-     */
     public function pendingUsers()
     {
-        $users = Pengguna::where('verifikasi_status', 'pending')
-            ->where('role', 'user')
-            ->get([
-                'ID_Pengguna', 
-                'Nama_Lengkap', 
-                'Email', 
-                'No_Telepon',
-                'foto_ktp',
-                'foto_kk'
-            ]);
+        try {
+            $users = DB::select("
+                SELECT ID_Pengguna, Nama_Lengkap, Email, No_Telepon, foto_ktp, foto_kk, NIK, No_KK, Tanggal_Lahir, verifikasi_status, alasan_penolakan
+                FROM pengguna 
+                WHERE verifikasi_status = 'pending' AND role = 'user'
+            ");
 
-        return response()->json([
-            'status' => 'success',
-            'data' => $users
-        ], 200);
+            Log::info('Jumlah pending users: ' . count($users));
+
+            return response()->json([
+                'status' => 'success',
+                'data' => $users
+            ], 200);
+            
+        } catch (\Exception $e) {
+            Log::error('Error pendingUsers: ' . $e->getMessage());
+            
+            try {
+                $users = DB::select("SELECT * FROM pengguna WHERE verifikasi_status = 'pending'");
+                return response()->json([
+                    'status' => 'success',
+                    'data' => $users
+                ], 200);
+            } catch (\Exception $e2) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => $e2->getMessage(),
+                    'data' => []
+                ], 500);
+            }
+        }
     }
 
-    /**
-     * Memproses verifikasi akun user oleh Admin (Bisa Setuju / Tolak).
-     */
     public function verify(Request $request, $id)
     {
-        $user = Pengguna::where('ID_Pengguna', $id)->orWhere('id', $id)->first();
+        try {
+            Log::info('Verifikasi user ID: ' . $id);
+            Log::info('Request data: ' . json_encode($request->all()));
+            
+            $user = Pengguna::where('ID_Pengguna', $id)->first();
 
-        if (!$user) {
+            if (!$user) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Data pengguna tidak ditemukan.'
+                ], 404);
+            }
+
+            $request->validate([
+                'dokumen_type' => 'required|in:ktp,kk',
+                'status' => 'required|in:verified,rejected',
+                'alasan_penolakan' => 'nullable|string'
+            ]);
+
+            if ($request->status === 'rejected' && $request->filled('alasan_penolakan')) {
+                $user->alasan_penolakan = $request->alasan_penolakan;
+            }
+
+            $user->verifikasi_status = $request->status;
+            $user->verified_at = now();
+            $user->verified_by = auth()->id();
+            $user->save();
+
             return response()->json([
-                'message' => 'Data pengguna tidak ditemukan.'
-            ], 404);
+                'status' => 'success',
+                'message' => 'Dokumen ' . $request->dokumen_type . ' berhasil diverifikasi',
+                'data' => [
+                    'user' => [
+                        'id' => $user->ID_Pengguna,
+                        'nama' => $user->Nama_Lengkap,
+                        'email' => $user->Email,
+                        'verifikasi_status' => $user->verifikasi_status
+                    ]
+                ]
+            ], 200);
+            
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Validasi gagal',
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            Log::error('Error verify: ' . $e->getMessage());
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Terjadi kesalahan: ' . $e->getMessage()
+            ], 500);
         }
-
-        $request->validate([
-            'status' => 'required|in:verified,rejected',
-            'alasan_penolakan' => 'required_if:status,rejected|nullable|string'
-        ]);
-
-        $user->update([
-            'verifikasi_status' => $request->status,
-            'alasan_penolakan'  => $request->alasan_penolakan,
-            'verified_at'       => now(),
-            'verified_by'       => auth()->id()
-        ]);
-
-        return response()->json([
-            'status' => 'success',
-            'message' => $request->status == 'verified' 
-                ? 'User berhasil diverifikasi' 
-                : 'User ditolak',
-            'user' => $user
-        ], 200);
     }
 
-    /**
-     * Mengecek status verifikasi dokumen dari sisi nasabah.
-     */
+    // ✅ DIPERBAIKI — hapus ktp_verified & kk_verified yang tidak ada di database
+    public function verifyFull(Request $request, $id)
+    {
+        try {
+            $user = Pengguna::where('ID_Pengguna', $id)->first();
+
+            if (!$user) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Data pengguna tidak ditemukan.'
+                ], 404);
+            }
+
+            $request->validate([
+                'status' => 'required|in:verified,rejected',
+                'alasan_penolakan' => 'nullable|string'
+            ]);
+
+            $user->verifikasi_status = $request->status;
+            $user->verified_at = now();
+            $user->verified_by = auth()->id();
+
+            if ($request->status === 'rejected' && $request->filled('alasan_penolakan')) {
+                $user->alasan_penolakan = $request->alasan_penolakan;
+            }
+
+            $user->save();
+
+            return response()->json([
+                'status' => 'success',
+                'message' => $request->status === 'verified' ? 'User berhasil diverifikasi' : 'User ditolak',
+                'data' => [
+                    'id' => $user->ID_Pengguna,
+                    'nama' => $user->Nama_Lengkap,
+                    'email' => $user->Email,
+                    'verifikasi_status' => $user->verifikasi_status
+                ]
+            ], 200);
+            
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Validasi gagal',
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            Log::error('Error verifyFull: ' . $e->getMessage());
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Terjadi kesalahan: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function getDokumen($id)
+    {
+        try {
+            $user = Pengguna::where('ID_Pengguna', $id)->first();
+
+            if (!$user) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Data pengguna tidak ditemukan.'
+                ], 404);
+            }
+
+            return response()->json([
+                'status' => 'success',
+                'data' => [
+                    'user' => [
+                        'id' => $user->ID_Pengguna,
+                        'nama' => $user->Nama_Lengkap,
+                        'email' => $user->Email,
+                        'no_telepon' => $user->No_Telepon,
+                        'nik' => $user->NIK,
+                        'no_kk' => $user->No_KK,
+                        'tanggal_lahir' => $user->Tanggal_Lahir,
+                        'alamat' => $user->Alamat_Lengkap,
+                        'foto_ktp' => $user->foto_ktp,
+                        'foto_kk' => $user->foto_kk,
+                        'verifikasi_status' => $user->verifikasi_status
+                    ]
+                ]
+            ], 200);
+            
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
     public function cekStatus(Request $request)
     {
-        $user = $request->user();
-        
-        return response()->json([
-            'status'           => $user->verifikasi_status ?? $user->Verifikasi_Status,
-            'alasan_penolakan' => $user->alasan_penolakan,
-            'verified_at'      => $user->verified_at
-        ], 200);
+        try {
+            $user = $request->user();
+            return response()->json([
+                'status' => 'success',
+                'data' => [
+                    'verifikasi_status' => $user->verifikasi_status ?? $user->Verifikasi_Status,
+                    'alasan_penolakan' => $user->alasan_penolakan,
+                    'verified_at' => $user->verified_at
+                ]
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => $e->getMessage()
+            ], 500);
+        }
     }
 }
