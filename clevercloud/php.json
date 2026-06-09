@@ -1,1 +1,5 @@
-{"deploy": {"webroot": "public"}}
+{
+    "deploy": {
+        "webroot": "/public"
+    }
+}
