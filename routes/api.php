@@ -17,6 +17,15 @@ Route::post('/register', [AuthController::class, 'register']);
 Route::get('/produk', [ProdukController::class, 'index']);
 Route::get('/produk/{id}', [ProdukController::class, 'show']);
 
+// ========== ROUTE TESTING ==========
+Route::get('/test', function () {
+    return response()->json([
+        'message' => 'API is working',
+        'time' => now()->toDateTimeString(),
+        'status' => 'success'
+    ]);
+});
+
 // ========== ROUTE YANG BUTUH TOKEN (USER & NASABAH LOGIN) ==========
 Route::middleware('auth:sanctum')->group(function () {
     // Auth
@@ -24,18 +33,18 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user', [AuthController::class, 'user']);
     Route::get('/nasabah/dashboard', [AuthController::class, 'dashboardNasabah']);
     Route::put('/nasabah/ubah-nomor-telepon', [AuthController::class, 'ubahNomorTelepon']);
-    
+
     // ========== UBAH PASSWORD ==========
     Route::put('/ubah-password', [AuthController::class, 'ubahPassword']);
 
     // ========== UPLOAD DOKUMEN KTP & KK ==========
     Route::post('/upload-dokumen', [AuthController::class, 'uploadDokumen']);
-    
+
     // Dashboard & Lainnya
     Route::get('/dashboard/stats', [PolisController::class, 'dashboardStats']);
     Route::get('/nasabah/tunggakan', [PolisController::class, 'tunggakanNasabah']);
     Route::get('/nasabah/riwayat-transaksi', [PolisController::class, 'riwayatTransaksi']);
-    
+
     // ========== NOTIFIKASI ==========
     Route::get('/nasabah/notifikasi', [PolisController::class, 'notifikasiNasabah']);
     Route::post('/notifications/mark-read', [PolisController::class, 'markNotificationAsRead']);
@@ -54,7 +63,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/klaim/saya', [KlaimController::class, 'klaimSaya']);
     Route::get('/klaim/status/{id}', [KlaimController::class, 'status']);
     Route::get('/klaim/unduh/{id}', [KlaimController::class, 'unduh']);
-    
+
     // SEMUA KLAIM (untuk admin dan testing)
     Route::get('/semua-klaim', [KlaimController::class, 'index']);
 });
@@ -75,35 +84,17 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->group(function () {
     Route::get('/verifikasi/pending', [VerifikasiController::class, 'pendingUsers']);
     Route::get('/verifikasi-dokumen', [VerifikasiController::class, 'pendingUsers']);
     Route::get('/verifikasi-dokumen/{id}', [VerifikasiController::class, 'getDokumen']);
-    // ✅ SATU-SATUNYA YANG BERUBAH — verify() → verifyFull()
     Route::put('/verifikasi/{id}', [VerifikasiController::class, 'verifyFull']);
 
     // ========== ROUTE KLAIM UNTUK ADMIN ==========
     Route::get('/klaim', [KlaimController::class, 'index']);
     Route::get('/klaim/pending', [KlaimController::class, 'pendingKlaim']);
     Route::put('/klaim/{id}/review', [KlaimController::class, 'review']);
-    
+
     // ========== ADMIN UPDATE STATUS KLAIM (DENGAN NOTIFIKASI) ==========
     Route::put('/klaim/{id}/status', [PolisController::class, 'updateStatusKlaim']);
-});
 
-// ========== ROUTE API RESOURCE YANG SUDAH ADA ==========
-Route::apiResource('pengguna', PenggunaController::class);
-Route::apiResource('polis', PolisController::class);
-Route::apiResource('laporan-keuangan', Laporan_KeuanganController::class);
-Route::apiResource('klaim', KlaimController::class);
-
-// ========== ROUTE TESTING ==========
-Route::get('/test', function () {
-    return response()->json([
-        'message' => 'API is working', 
-        'time' => now()->toDateTimeString(),
-        'status' => 'success'
-    ]);
-});
-
-// ========== ROUTE UNTUK ADMIN DASHBOARD (tanpa prefix admin) ==========
-Route::middleware('auth:sanctum')->prefix('admin-dashboard')->group(function () {
-    Route::get('/klaim', [KlaimController::class, 'index']);
-    Route::get('/stats', [KlaimController::class, 'stats']);
+    // ========== MANAJEMEN PENGGUNA & LAPORAN (ADMIN ONLY) ==========
+    Route::apiResource('pengguna', PenggunaController::class);
+    Route::apiResource('laporan-keuangan', Laporan_KeuanganController::class);
 });
